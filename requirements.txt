@@ -1,0 +1,8 @@
+streamlit
+groq
+requests
+pillow
+pyttsx3
+moviepy
+imageio-ffmpeg
+unsplash-python
