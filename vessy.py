@@ -8,8 +8,11 @@ from moviepy import ImageClip, AudioFileClip
 import tempfile
 
 # ================= CONFIG =================
-GROQ_API_KEY = "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"
-UNSPLASH_KEY = "E9Qv8KAcs50tB6guz80X8Rq9rqv6eexTeP57Wa9e3gU"
+import os
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+UNSPLASH_KEY = os.getenv("UNSPLASH_KEY")
+
 
 llm = Groq(api_key=GROQ_API_KEY)
 
@@ -252,6 +255,8 @@ if st.button("Teach Me"):
         video_path = create_video(annotated, audio_path)
 
     st.video(video_path)
+
+
 
 
 
