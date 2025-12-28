@@ -3,7 +3,9 @@ from groq import Groq
 import requests
 from PIL import Image, ImageDraw
 import json
-import pyttsx3
+from gtts import gTTS
+
+
 from moviepy import ImageClip, AudioFileClip
 import tempfile
 
@@ -161,18 +163,16 @@ def generate_voice(text):
             "Focus on the highlighted parts as I explain."
         )
 
-    engine = pyttsx3.init()
-    engine.setProperty("rate", 145)
-    engine.setProperty("volume", 1.0)
-
     temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     audio_path = temp_audio.name
     temp_audio.close()
 
-    engine.save_to_file(text, audio_path)
-    engine.runAndWait()
+    tts = gTTS(text=text, lang="en")
+    tts.save(audio_path)
 
     return audio_path
+
+
 
 
 # ================= VIDEO =================
