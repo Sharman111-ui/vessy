@@ -2,7 +2,9 @@ streamlit
 groq
 requests
 pillow
-pyttsx3
 moviepy
+imageio
 imageio-ffmpeg
-unsplash-python
+gTTS
+
+
