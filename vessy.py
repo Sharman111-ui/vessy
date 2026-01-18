@@ -7,7 +7,7 @@ from gtts import gTTS
 
 
 from moviepy.editor import ImageClip
-, AudioFileClip
+
 
 import tempfile
 
@@ -257,6 +257,7 @@ if st.button("Teach Me"):
         video_path = create_video(annotated, audio_path)
 
     st.video(video_path)
+
 
 
 
