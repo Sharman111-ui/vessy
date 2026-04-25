@@ -190,7 +190,7 @@ def create_video(image, audio_path):
     temp_video.close()
 
     clip = ImageClip(img_path, duration=audio_clip.duration)
-    clip = clip.with_audio(audio_clip)
+    clip = clip.set_audio(audio_clip)
 
     clip.write_videofile(
         video_path,
