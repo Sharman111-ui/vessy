@@ -4,47 +4,64 @@ import requests
 from PIL import Image, ImageDraw
 import json
 from gtts import gTTS
-
 from moviepy.editor import ImageClip, AudioFileClip
-
-
 import tempfile
+import os
 
 # ================= CONFIG =================
-import os
 
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")
 UNSPLASH_KEY = os.getenv("UNSPLASH_KEY")
 
+if not GROQ_API_KEY:
+    st.error("Missing GROQ_API_KEY in secrets.")
+    st.stop()
+
+if not UNSPLASH_KEY:
+    st.error("Missing UNSPLASH_KEY in secrets.")
+    st.stop()
 
 llm = Groq(api_key=GROQ_API_KEY)
 
-st.set_page_config(page_title="Vessy AI", layout="centered")
-st.title("Vessy — Visual Teaching AI 🧠🎬")
+st.set_page_config(page_title="Veesy AI", layout="centered")
+st.title("Veesy — Visual Teaching AI 🧠🎬")
 
 question = st.text_input("Ask anything:")
 
-# ================= IMAGE SEARCH =================
-def extract_visual_keyword(question):
+
+# ================= SMART MULTI-QUERY IMAGE SEARCH =================
+
+def extract_visual_keywords(question):
     prompt = f"""
-    Convert this question into ONE concrete visual search phrase.
-    Use nouns only. No explanation.
+    Convert this question into 3 specific image search phrases.
+
+    Each phrase should describe what should appear in a diagram
+    that helps visually explain the concept.
+
+    Return ONLY valid JSON array.
+
     Question: {question}
     """
+
     res = llm.chat.completions.create(
         model="llama-3.1-8b-instant",
         messages=[{"role": "user", "content": prompt}]
     )
-    return res.choices[0].message.content.strip()
+
+    try:
+        return json.loads(res.choices[0].message.content)
+    except:
+        return [question]
 
 
-def search_images(query, count=3):
+def search_images(query, count=1):
     url = "https://api.unsplash.com/search/photos"
     params = {
         "query": query,
         "per_page": count,
         "client_id": UNSPLASH_KEY
     }
+
     res = requests.get(url, params=params).json()
 
     images = []
@@ -56,39 +73,22 @@ def search_images(query, count=3):
 
 
 # ================= VISUAL POINTS =================
+
 def get_visual_points(question):
     prompt = f"""
-    You are Vessy, a visual teacher who explains by pointing at images.
+    You are Vessy, a visual teacher explaining with diagrams.
 
-    For the question:
+    For this question:
     "{question}"
 
-    Decide 3 important things a teacher would POINT TO
-    while explaining this concept visually.
+    Return 3 teaching pointer labels with coordinates.
 
-    VERY IMPORTANT RULES FOR LABELS:
-    - Do NOT use abstract technical words like:
-      data, algorithm, model, system, process
-    - Labels must describe WHAT IS HAPPENING, not what it is
-    - Labels should sound like spoken teaching, not metadata
-
-    Good examples:
-    - "Information flows through this part"
-    - "A decision is made here"
-    - "This step transforms the input"
-    - "Energy is absorbed at this point"
-
-    Bad examples:
-    - "Data"
-    - "Algorithm"
-    - "Processing unit"
-
-    Return ONLY valid JSON in this exact format:
+    Format ONLY valid JSON:
 
     [
-      {{"label": "Teaching action phrase", "x": 0.3, "y": 0.4}},
-      {{"label": "Teaching action phrase", "x": 0.6, "y": 0.5}},
-      {{"label": "Teaching action phrase", "x": 0.5, "y": 0.7}}
+      {{"label": "Explanation phrase", "x": 0.3, "y": 0.4}},
+      {{"label": "Explanation phrase", "x": 0.6, "y": 0.5}},
+      {{"label": "Explanation phrase", "x": 0.5, "y": 0.7}}
     ]
     """
 
@@ -100,8 +100,8 @@ def get_visual_points(question):
     return res.choices[0].message.content
 
 
-
 # ================= DRAW ARROWS =================
+
 def annotate_image(image, points_json):
     draw = ImageDraw.Draw(image)
     width, height = image.size
@@ -113,15 +113,13 @@ def annotate_image(image, points_json):
 
     arrow_color = (0, 180, 255)
     bg_color = (180, 240, 255)
-    text_color = (0, 0, 0)
 
     for idx, p in enumerate(points, start=1):
-        if "label" not in p:
-            continue
 
         x = int(p.get("x", 0.5) * width)
         y = int(p.get("y", 0.5) * height)
-        label = f"{idx}. {p['label']}"
+
+        label = f"{idx}. {p.get('label','')}"
 
         sx, sy = x - 80, y - 80
 
@@ -129,58 +127,61 @@ def annotate_image(image, points_json):
         draw.polygon([(x, y), (x-20, y-20), (x+20, y-20)], fill=arrow_color)
 
         box_w = len(label) * 12 + 20
+
         draw.rectangle(
             (sx-10, sy-40, sx-10+box_w, sy),
             fill=bg_color,
             outline=arrow_color,
             width=3
         )
-        draw.text((sx, sy-32), label, fill=text_color)
+
+        draw.text((sx, sy-32), label, fill=(0, 0, 0))
 
     return image
 
 
-# ================= TEACHING SCRIPT (SAFE) =================
+# ================= TEACHING SCRIPT =================
+
 def build_teaching_script(points_json):
+
     try:
         points = json.loads(points_json)
     except:
         return ""
 
     lines = []
+
     for p in points:
-        label = p.get("label", "").strip()
-        if label:
-            lines.append(label)
+        if "label" in p:
+            lines.append(p["label"])
 
     return ". ".join(lines)
 
 
-# ================= VOICE (SAFE) =================
+# ================= VOICE =================
+
 def generate_voice(text):
-    if not text or not text.strip():
-        text = (
-            "Let me explain this visually step by step. "
-            "Focus on the highlighted parts as I explain."
-        )
+
+    if not text.strip():
+        text = "Let me explain this visually step by step."
 
     temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     audio_path = temp_audio.name
     temp_audio.close()
 
-    tts = gTTS(text=text, lang="en")
-    tts.save(audio_path)
+    gTTS(text=text, lang="en").save(audio_path)
 
     return audio_path
 
 
-
-
 # ================= VIDEO =================
+
 def create_video(image, audio_path):
+
     temp_img = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
     img_path = temp_img.name
     temp_img.close()
+
     image.save(img_path)
 
     audio_clip = AudioFileClip(audio_path)
@@ -190,6 +191,7 @@ def create_video(image, audio_path):
     temp_video.close()
 
     clip = ImageClip(img_path, duration=audio_clip.duration)
+
     clip = clip.set_audio(audio_clip)
 
     clip.write_videofile(
@@ -202,39 +204,47 @@ def create_video(image, audio_path):
     return video_path
 
 
-# ================= ACTION =================
+# ================= MAIN ACTION =================
+
 if st.button("Teach Me"):
+
     if not question.strip():
         st.warning("Ask something first.")
         st.stop()
 
-    # ---- Teaching text ----
+    # explanation text
+
     with st.spinner("Planning lesson..."):
+
         chat = llm.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=[
                 {
                     "role": "system",
-                    "content": (
-                        "You are Vessy, a calm visual teaching assistant. "
-                        "Start with one short guiding sentence. "
-                        "Then explain in 3–5 short bullet points. "
-                        "Use teaching language like 'Look here' or 'Notice this'. "
-                        "Keep it short and clear."
-                    )
+                    "content":
+                    "Explain visually in 3–5 short teaching bullet points."
                 },
                 {"role": "user", "content": question}
             ]
         )
+
         answer = chat.choices[0].message.content
 
-    st.subheader("Vessy explains")
+    st.subheader("Veesy explains")
     st.write(answer)
 
-    # ---- Visual creation (NO STATIC IMAGE SHOWN) ----
-    with st.spinner("Preparing visual lesson..."):
-        visual_query = extract_visual_keyword(question)
-        img_urls = search_images(visual_query, count=3)
+    # smarter image retrieval
+
+    with st.spinner("Finding best visuals..."):
+
+        queries = extract_visual_keywords(question)
+
+        img_urls = []
+
+        for q in queries:
+            results = search_images(q, 1)
+            if results:
+                img_urls.extend(results)
 
         if not img_urls:
             st.error("No visuals found.")
@@ -245,19 +255,24 @@ if st.button("Teach Me"):
         ).convert("RGB")
 
         points_json = get_visual_points(question)
+
         annotated = annotate_image(base_img, points_json)
 
-    # ---- Voice + Video ----
-    with st.spinner("Teaching with voice..."):
+    # voice
+
+    with st.spinner("Generating voice explanation..."):
+
         teaching_text = build_teaching_script(points_json)
+
         audio_path = generate_voice(teaching_text)
 
+    # video
+
     with st.spinner("Creating teaching video..."):
+
         video_path = create_video(annotated, audio_path)
 
     st.video(video_path)
-
-
 
 
 
