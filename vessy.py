@@ -5,8 +5,7 @@ from PIL import Image, ImageDraw
 import json
 from gtts import gTTS
 
-
-from moviepy import ImageClip, AudioFileClip
+from moviepy.editor import ImageClip, AudioFileClip
 
 
 import tempfile
