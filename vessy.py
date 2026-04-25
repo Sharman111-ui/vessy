@@ -28,15 +28,30 @@ st.title("Veesy — Visual Teaching AI 🧠🎬")
 
 question = st.text_input("Ask anything:")
 
-
-# ================= SMART MULTI-QUERY IMAGE SEARCH =================
+# ================= SMART DIAGRAM QUERY GENERATION =================
 
 def extract_visual_keywords(question):
-    prompt = f"""
-    Convert this question into 3 specific image search phrases.
 
-    Each phrase should describe what should appear in a diagram
-    that helps visually explain the concept.
+    prompt = f"""
+    Convert this question into 3 diagram-style image search phrases.
+
+    IMPORTANT RULES:
+    - Prefer scientific diagrams
+    - Prefer labeled illustrations
+    - Prefer educational visuals
+    - Avoid stock photography
+    - Avoid people, laptops, desks, offices
+
+    Example:
+
+    Question: What is a black hole?
+
+    Output:
+    [
+      "black hole spacetime curvature diagram labeled",
+      "event horizon black hole structure illustration",
+      "black hole gravity bending light diagram"
+    ]
 
     Return ONLY valid JSON array.
 
@@ -49,13 +64,24 @@ def extract_visual_keywords(question):
     )
 
     try:
-        return json.loads(res.choices[0].message.content)
+        queries = json.loads(res.choices[0].message.content)
+
+        # enforce diagram bias automatically
+        return [
+            q + " diagram labeled illustration"
+            for q in queries
+        ]
+
     except:
-        return [question]
+        return [question + " diagram labeled illustration"]
 
 
-def search_images(query, count=1):
+# ================= IMAGE SEARCH =================
+
+def search_images(query, count=3):
+
     url = "https://api.unsplash.com/search/photos"
+
     params = {
         "query": query,
         "per_page": count,
@@ -65,6 +91,7 @@ def search_images(query, count=1):
     res = requests.get(url, params=params).json()
 
     images = []
+
     if res.get("results"):
         for r in res["results"]:
             images.append(r["urls"]["regular"])
@@ -72,9 +99,43 @@ def search_images(query, count=1):
     return images
 
 
-# ================= VISUAL POINTS =================
+# ================= FILTER BAD STOCK IMAGES =================
+
+def get_best_image(question):
+
+    queries = extract_visual_keywords(question)
+
+    for q in queries:
+
+        results = search_images(q, 3)
+
+        for url in results:
+
+            if any(
+                bad in url.lower()
+                for bad in [
+                    "person",
+                    "office",
+                    "desk",
+                    "workspace",
+                    "laptop",
+                    "portrait",
+                    "team",
+                    "meeting",
+                    "people"
+                ]
+            ):
+                continue
+
+            return url
+
+    return None
+
+
+# ================= VISUAL POINTER GENERATION =================
 
 def get_visual_points(question):
+
     prompt = f"""
     You are Vessy, a visual teacher explaining with diagrams.
 
@@ -103,7 +164,9 @@ def get_visual_points(question):
 # ================= DRAW ARROWS =================
 
 def annotate_image(image, points_json):
+
     draw = ImageDraw.Draw(image)
+
     width, height = image.size
 
     try:
@@ -124,12 +187,16 @@ def annotate_image(image, points_json):
         sx, sy = x - 80, y - 80
 
         draw.line((sx, sy, x, y), fill=arrow_color, width=8)
-        draw.polygon([(x, y), (x-20, y-20), (x+20, y-20)], fill=arrow_color)
+
+        draw.polygon(
+            [(x, y), (x-20, y-20), (x+20, y-20)],
+            fill=arrow_color
+        )
 
         box_w = len(label) * 12 + 20
 
         draw.rectangle(
-            (sx-10, sy-40, sx-10+box_w, sy),
+            (sx-10, sy-40, sx-10 + box_w, sy),
             fill=bg_color,
             outline=arrow_color,
             width=3
@@ -165,7 +232,11 @@ def generate_voice(text):
     if not text.strip():
         text = "Let me explain this visually step by step."
 
-    temp_audio = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+    temp_audio = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".mp3"
+    )
+
     audio_path = temp_audio.name
     temp_audio.close()
 
@@ -178,7 +249,11 @@ def generate_voice(text):
 
 def create_video(image, audio_path):
 
-    temp_img = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+    temp_img = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".png"
+    )
+
     img_path = temp_img.name
     temp_img.close()
 
@@ -186,7 +261,11 @@ def create_video(image, audio_path):
 
     audio_clip = AudioFileClip(audio_path)
 
-    temp_video = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    temp_video = tempfile.NamedTemporaryFile(
+        delete=False,
+        suffix=".mp4"
+    )
+
     video_path = temp_video.name
     temp_video.close()
 
@@ -204,7 +283,7 @@ def create_video(image, audio_path):
     return video_path
 
 
-# ================= MAIN ACTION =================
+# ================= MAIN EXECUTION =================
 
 if st.button("Teach Me"):
 
@@ -212,7 +291,7 @@ if st.button("Teach Me"):
         st.warning("Ask something first.")
         st.stop()
 
-    # explanation text
+    # TEXT EXPLANATION
 
     with st.spinner("Planning lesson..."):
 
@@ -233,52 +312,39 @@ if st.button("Teach Me"):
     st.subheader("Veesy explains")
     st.write(answer)
 
-    # smarter image retrieval
+    # IMAGE SELECTION
 
-    with st.spinner("Finding best visuals..."):
+    with st.spinner("Finding best diagram..."):
 
-        queries = extract_visual_keywords(question)
+        img_url = get_best_image(question)
 
-        img_urls = []
-
-        for q in queries:
-            results = search_images(q, 1)
-            if results:
-                img_urls.extend(results)
-
-        if not img_urls:
-            st.error("No visuals found.")
+        if not img_url:
+            st.error("No suitable diagram found.")
             st.stop()
 
         base_img = Image.open(
-            requests.get(img_urls[0], stream=True).raw
+            requests.get(img_url, stream=True).raw
         ).convert("RGB")
 
         points_json = get_visual_points(question)
 
         annotated = annotate_image(base_img, points_json)
 
-    # voice
+    # AUDIO
 
-    with st.spinner("Generating voice explanation..."):
+    with st.spinner("Generating teaching voice..."):
 
         teaching_text = build_teaching_script(points_json)
 
         audio_path = generate_voice(teaching_text)
 
-    # video
+    # VIDEO
 
     with st.spinner("Creating teaching video..."):
 
         video_path = create_video(annotated, audio_path)
 
     st.video(video_path)
-
-
-
-
-
-
 
 
 
